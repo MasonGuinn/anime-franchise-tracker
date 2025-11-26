@@ -12,12 +12,15 @@ import {
 import { db } from '@/lib/firebase';
 import { AnimeNode } from '@/app/actions';
 
+export type AnimeStatus = 'watching' | 'completed' | 'paused' | 'planned';
+
 export type FranchiseItem = {
     id: number;
     title: string;
     cover: string;
     children: AnimeNode[];
     watchedIds: number[];
+    status?: AnimeStatus;
 };
 
 type UserCollections = {
@@ -169,12 +172,20 @@ export function useUserCollections(user: User | null) {
         }));
     };
 
+    const updateStatus = (franchiseId: number, status: AnimeStatus) => {
+        setMyList(prev => prev.map(item => {
+            if (item.id !== franchiseId) return item;
+            return { ...item, status };
+        }));
+    };
+
     return {
         myList,
         isLoading,
         isSyncing,
         addFranchise,
         removeFranchise,
-        toggleWatched
+        toggleWatched,
+        updateStatus
     };
 }

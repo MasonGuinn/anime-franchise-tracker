@@ -5,7 +5,7 @@ import { TimelineView, UITimelineNode } from '@/components/TimelineView';
 import AnimeDetailModal from '@/components/AnimeDetailModal';
 import DiscoverSection from '@/components/DiscoverSection'; // New Import
 import LoginButton from '@/components/LoginButton';
-import { useUserCollections, type FranchiseItem } from '@/hooks/useUserCollections';
+import { useUserCollections, type FranchiseItem, type AnimeStatus } from '@/hooks/useUserCollections';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import Image from 'next/image';
@@ -28,10 +28,11 @@ export default function Home() {
   }, []);
 
   // -- USER COLLECTIONS --
-  const { myList, isLoading: isCollectionsLoading, isSyncing, addFranchise, removeFranchise, toggleWatched } = useUserCollections(user);
+  const { myList, isLoading: isCollectionsLoading, isSyncing, addFranchise, removeFranchise, toggleWatched, updateStatus } = useUserCollections(user);
 
   // -- STATE --
   const [activeTab, setActiveTab] = useState<TabOption>('discover');
+  const [statusFilter, setStatusFilter] = useState<'all' | AnimeStatus>('all');
   const [discoverData, setDiscoverData] = useState<{ trending: any[], popular: any[], upcoming: any[] } | null>(null);
 
   const [query, setQuery] = useState('');
@@ -86,7 +87,8 @@ export default function Home() {
         title: anime.title.english || anime.title.romaji || 'Unknown',
         cover: anime.coverImage.large || '',
         children: anime.children,
-        watchedIds: []
+        watchedIds: [],
+        status: 'planned'
       }; const added = addFranchise(newItem);
       if (added) {
         setExpandedFranchiseId(newItem.id);
@@ -284,6 +286,55 @@ export default function Home() {
           </div>
         ) : (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* STATUS TABS */}
+            <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${statusFilter === 'all'
+                    ? 'bg-indigo-600 text-white shadow-lg'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                  }`}
+              >
+                All ({myList.length})
+              </button>
+              <button
+                onClick={() => setStatusFilter('watching')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${statusFilter === 'watching'
+                    ? 'bg-indigo-600 text-white shadow-lg'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                  }`}
+              >
+                Watching ({myList.filter(f => f.status === 'watching').length})
+              </button>
+              <button
+                onClick={() => setStatusFilter('completed')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${statusFilter === 'completed'
+                    ? 'bg-green-600 text-white shadow-lg'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                  }`}
+              >
+                Completed ({myList.filter(f => f.status === 'completed').length})
+              </button>
+              <button
+                onClick={() => setStatusFilter('paused')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${statusFilter === 'paused'
+                    ? 'bg-amber-600 text-white shadow-lg'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                  }`}
+              >
+                Paused ({myList.filter(f => f.status === 'paused').length})
+              </button>
+              <button
+                onClick={() => setStatusFilter('planned')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${statusFilter === 'planned'
+                    ? 'bg-blue-600 text-white shadow-lg'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                  }`}
+              >
+                Planned ({myList.filter(f => f.status === 'planned').length})
+              </button>
+            </div>
+
             {/* LIBRARY TOOLBAR */}
             <div className="flex flex-wrap items-center gap-3 mb-8 p-4 bg-[#121214] border border-zinc-800/50 rounded-xl">
               <div className="flex items-center gap-2 text-sm text-zinc-400 mr-2"><Filter size={16} /> Filters:</div>
@@ -303,37 +354,52 @@ export default function Home() {
                 </div>
               )}
 
-              {myList.map((franchise) => {
-                const groups = buildHierarchy(franchise);
-                const isExpanded = expandedFranchiseId === franchise.id;
-                const progress = franchise.watchedIds.length;
-                const total = franchise.children.length;
+              {myList
+                .filter(f => statusFilter === 'all' || f.status === statusFilter)
+                .map((franchise) => {
+                  const groups = buildHierarchy(franchise);
+                  const isExpanded = expandedFranchiseId === franchise.id;
+                  const progress = franchise.watchedIds.length;
+                  const total = franchise.children.length;
 
-                return (
-                  <div key={franchise.id} className="bg-[#18181b] rounded-2xl overflow-hidden border border-zinc-800/60 shadow-xl">
-                    <div onClick={() => setExpandedFranchiseId(isExpanded ? null : franchise.id)} className="p-5 flex items-center gap-5 cursor-pointer hover:bg-[#27272a] transition-colors group relative overflow-hidden">
-                      <div className="absolute bottom-0 left-0 h-1 bg-indigo-500/20 w-full"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${(progress / total) * 100}%` }} /></div>
-                      <Image src={franchise.cover} alt="cover" width={50} height={70} className="w-12 h-16 object-cover rounded shadow-md z-10" />
-                      <div className="flex-1 z-10">
-                        <h2 className="text-2xl font-bold text-white group-hover:text-indigo-400 transition-colors">{franchise.title} <span className="opacity-50 text-lg font-normal">Franchise</span></h2>
-                        <div className="text-sm text-zinc-500 mt-1">{progress} / {total} Watched</div>
+                  return (
+                    <div key={franchise.id} className="bg-[#18181b] rounded-2xl overflow-hidden border border-zinc-800/60 shadow-xl">
+                      <div onClick={() => setExpandedFranchiseId(isExpanded ? null : franchise.id)} className="p-5 flex items-center gap-5 cursor-pointer hover:bg-[#27272a] transition-colors group relative overflow-hidden">
+                        <div className="absolute bottom-0 left-0 h-1 bg-indigo-500/20 w-full"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${(progress / total) * 100}%` }} /></div>
+                        <Image src={franchise.cover} alt="cover" width={50} height={70} className="w-12 h-16 object-cover rounded shadow-md z-10" />
+                        <div className="flex-1 z-10">
+                          <h2 className="text-2xl font-bold text-white group-hover:text-indigo-400 transition-colors">{franchise.title} <span className="opacity-50 text-lg font-normal">Franchise</span></h2>
+                          <div className="text-sm text-zinc-500 mt-1">{progress} / {total} Watched</div>
+                        </div>
+                        <div className="flex items-center gap-2 z-10">
+                          <select
+                            value={franchise.status || 'planned'}
+                            onChange={(e) => { e.stopPropagation(); updateStatus(franchise.id, e.target.value as AnimeStatus); }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 cursor-pointer hover:bg-zinc-700 transition"
+                          >
+                            <option value="watching">Watching</option>
+                            <option value="completed">Completed</option>
+                            <option value="paused">Paused</option>
+                            <option value="planned">Planned</option>
+                          </select>
+                          <button onClick={(e) => { e.stopPropagation(); removeitem(franchise.id); }} className="text-zinc-600 hover:text-red-400 p-3"><Trash2 size={20} /></button>
+                        </div>
+                        {isExpanded ? <ChevronDown className="text-zinc-500 z-10" /> : <ChevronRight className="text-zinc-500 z-10" />}
                       </div>
-                      <button onClick={(e) => { e.stopPropagation(); removeitem(franchise.id); }} className="text-zinc-600 hover:text-red-400 p-3 z-10"><Trash2 size={20} /></button>
-                      {isExpanded ? <ChevronDown className="text-zinc-500 z-10" /> : <ChevronRight className="text-zinc-500 z-10" />}
-                    </div>
 
-                    {isExpanded && (
-                      <TimelineView
-                        franchiseId={franchise.id}
-                        groups={groups as any}
-                        watchedIds={franchise.watchedIds}
-                        onToggleWatched={toggleWatched}
-                        onTitleClick={handleShowDetails}
-                      />
-                    )}
-                  </div>
-                );
-              })}
+                      {isExpanded && (
+                        <TimelineView
+                          franchiseId={franchise.id}
+                          groups={groups as any}
+                          watchedIds={franchise.watchedIds}
+                          onToggleWatched={toggleWatched}
+                          onTitleClick={handleShowDetails}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
             </div>
           </div>
         )}
