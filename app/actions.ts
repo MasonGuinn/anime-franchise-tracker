@@ -1,43 +1,55 @@
 'use server'
 
-// 1. A deep query that gets Children AND Grandchildren
+// --- TYPES ---
+interface TitleData { english?: string | null; romaji?: string | null; }
+interface RelationNode { id: number; type?: string; title?: TitleData; format?: string; startDate?: { year?: number }; coverImage?: { medium?: string; large?: string }; relations?: { edges: any[] }; }
+interface MediaData { id: number; title: TitleData; format?: string; startDate?: { year?: number }; coverImage?: { large?: string }; relations?: { edges: any[] }; }
+interface AniListResponse<T> { data: { Media: T }; }
+
+// Updated AnimeNode
+interface AnimeNode {
+    id: number;
+    title: TitleData;
+    format: string;
+    year: number;
+    cover: string;
+    edges: { id: number; relationType: string }[];
+}
+
+interface FranchiseResult {
+    id: number;
+    title: TitleData;
+    coverImage: { large?: string; medium?: string };
+    children: AnimeNode[];
+}
+
+// --- QUERIES ---
 const DEEP_QUERY = `
 query ($id: Int) {
   Media(id: $id) {
     id
-    title {
-      english
-      romaji
-    }
-    coverImage {
-      large
-    }
+    title { english romaji }
+    coverImage { large }
+    startDate { year }
+    format
     relations {
       edges {
         relationType
         node {
           id
-          title {
-            english
-            romaji
-          }
+          title { english romaji }
           format
-          episodes
-          coverImage {
-            medium
-          }
-          # LEVEL 2: Fetch the relations of the relations (Grandchildren)
+          startDate { year }
+          coverImage { medium }
           relations {
             edges {
               relationType
-              node {
-                id
-                title {
-                  english
-                  romaji
-                }
-                format
-                episodes
+              node { 
+                id 
+                title { english romaji }
+                format 
+                startDate { year }
+                coverImage { medium }
               }
             }
           }
@@ -48,120 +60,104 @@ query ($id: Int) {
 }
 `;
 
-// 2. A simple query just to check if something has a Prequel
 const PREQUEL_CHECK_QUERY = `
 query ($search: String, $id: Int) {
   Media(search: $search, id: $id, type: ANIME, sort: SEARCH_MATCH) {
     id
-    title {
-      english
-      romaji
-    }
     relations {
       edges {
         relationType
-        node {
-          id
-          type
-        }
+        node { id type }
       }
     }
   }
 }
 `;
 
-async function fetchAnilist(query: string, variables: Record<string, unknown>) {
+// --- FETCH HELPER ---
+async function fetchAnilist<T>(query: string, variables: Record<string, string | number>): Promise<AniListResponse<T>> {
     const response = await fetch('https://graphql.anilist.co', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, variables }),
     });
-    return response.json();
+    if (!response.ok) throw new Error(`API Error: ${response.status}`);
+    const data = await response.json();
+    return data;
 }
 
-export async function fetchFranchise(search: string) {
-    // STEP 1: Find the anime the user searched for
-    const currentData = await fetchAnilist(PREQUEL_CHECK_QUERY, { search });
+// --- MAIN FUNCTION ---
+export async function fetchFranchise(search: string): Promise<FranchiseResult> {
+    // 1. Find Target
+    const currentData = await fetchAnilist<MediaData>(PREQUEL_CHECK_QUERY, { search });
     let media = currentData.data.Media;
+    if (!media) throw new Error("Anime not found");
 
-    if (!media) throw new Error("Not found");
-
-    // STEP 2: Climb up the tree to find the "ROOT" (The Original Prequel)
-    // We loop purely to find the absolute start of the franchise
+    // 2. Climb to Root
     let hasPrequel = true;
     let attempts = 0;
-
-    while (hasPrequel && attempts < 5) {
-        const prequelEdge = media.relations.edges.find(
-            (edge: { relationType: string; node: { id: number; type?: string } }) =>
-                edge.relationType === 'PREQUEL' && edge.node.type === 'ANIME'
-        );
-
+    while (hasPrequel && attempts < 10) {
+        const prequelEdge = media.relations?.edges?.find(e => e.relationType === 'PREQUEL' && e.node.type === 'ANIME');
         if (prequelEdge) {
-            // If we found a prequel, fetch THAT prequel and restart the loop
-            const prequelId = prequelEdge.node.id;
-            const prequelData = await fetchAnilist(PREQUEL_CHECK_QUERY, { id: prequelId });
-            media = prequelData.data.Media;
-            attempts++;
-        } else {
-            hasPrequel = false;
-        }
+            const prequelData = await fetchAnilist<MediaData>(PREQUEL_CHECK_QUERY, { id: prequelEdge.node.id });
+            if (prequelData.data.Media) { media = prequelData.data.Media; attempts++; } else break;
+        } else { hasPrequel = false; }
     }
 
-    // STEP 3: Now that we have the Root ID, fetch the entire tree (2 levels deep)
-    const finalData = await fetchAnilist(DEEP_QUERY, { id: media.id });
+    // 3. Fetch Tree
+    const finalData = await fetchAnilist<MediaData>(DEEP_QUERY, { id: media.id });
     const rootNode = finalData.data.Media;
+    if (!rootNode) throw new Error("Failed to fetch tree");
 
-    // STEP 4: Flatten the tree into a single list and remove duplicates
-    interface MediaNode {
-        id: number;
-        title?: { english?: string | null; romaji?: string | null } | null;
-        format?: string | null;
-        episodes?: number | null;
-        coverImage?: { medium?: string | null; large?: string | null } | null;
-        relations?: { edges: Array<{ relationType: string; node: MediaNode }> } | null;
-        type?: string | null;
-    }
+    // 4. Flatten & Process with STRICT FILTERING
+    const allItemsMap = new Map<number, AnimeNode>();
+    const ALLOWED_FORMATS = ['TV', 'MOVIE', 'OVA', 'SPECIAL', 'ONA', 'TV_SHORT'];
 
-    const allItemsMap = new Map<number, { node: MediaNode }>();
+    // THE FIX: Only allow these relationships. This blocks "Character", "Other", "Source".
+    const VALID_RELATIONS = ['PREQUEL', 'SEQUEL', 'PARENT', 'SIDE_STORY', 'ALTERNATIVE', 'SPIN_OFF', 'SUMMARY'];
 
-    // Helper to add items to our map
-    const addItem = (node: MediaNode) => {
-        // skip if it's the root itself or already added
-        if (node.id === rootNode.id || allItemsMap.has(node.id)) return;
+    const addItem = (node: any) => {
+        if (!node || !node.format || !ALLOWED_FORMATS.includes(node.format) || allItemsMap.has(node.id)) return;
+
+        // Capture edges, but only valid ones
+        const edges = node.relations?.edges
+            ?.filter((e: any) => VALID_RELATIONS.includes(e.relationType))
+            .map((e: any) => ({
+                id: e.node.id,
+                relationType: e.relationType
+            })) || [];
 
         allItemsMap.set(node.id, {
-            node: {
-                id: node.id,
-                title: node.title,
-                format: node.format,
-                episodes: node.episodes,
-                coverImage: node.coverImage
-            }
+            id: node.id,
+            title: node.title || { romaji: 'Unknown' },
+            format: node.format,
+            year: node.startDate?.year ?? 9999,
+            cover: node.coverImage?.medium || node.coverImage?.large || '',
+            edges: edges
         });
     };
 
-    // Process Level 1 (Children)
-    if (rootNode.relations && rootNode.relations.edges) {
-        rootNode.relations.edges.forEach((edge: { relationType: string; node: MediaNode }) => {
-            addItem(edge.node);
-
-            // Process Level 2 (Grandchildren)
-            if (edge.node.relations && edge.node.relations.edges) {
-                edge.node.relations.edges.forEach((grandEdge: { relationType: string; node: MediaNode }) => {
-                    addItem(grandEdge.node);
-                });
+    addItem(rootNode);
+    if (rootNode.relations?.edges) {
+        rootNode.relations.edges.forEach((edge: any) => {
+            // Only traverse down if the relation type is valid
+            if (edge?.node && VALID_RELATIONS.includes(edge.relationType)) {
+                addItem(edge.node);
+                if (edge.node.relations?.edges) {
+                    edge.node.relations.edges.forEach((grandEdge: any) => {
+                        if (grandEdge?.node && VALID_RELATIONS.includes(grandEdge.relationType)) {
+                            addItem(grandEdge.node);
+                        }
+                    });
+                }
             }
         });
     }
 
-    // Reconstruct the response format your Frontend expects
     return {
         id: rootNode.id,
-        title: rootNode.title,
-        coverImage: rootNode.coverImage,
-        relations: {
-            edges: Array.from(allItemsMap.values())
-        }
+        title: rootNode.title || { romaji: 'Unknown' },
+        coverImage: rootNode.coverImage || {},
+        children: Array.from(allItemsMap.values())
     };
 }
