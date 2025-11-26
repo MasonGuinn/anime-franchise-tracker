@@ -47,15 +47,18 @@ export default function Home() {
   const [selectedAnime, setSelectedAnime] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isModalLoading, setIsModalLoading] = useState(false);
+  const [animeDetailsCache, setAnimeDetailsCache] = useState<Map<number, any>>(new Map());
 
   // -- FETCH DATA --
   useEffect(() => {
     async function load() {
-      const data = await fetchDiscoverData();
-      setDiscoverData(data);
+      if (!discoverData) { // Only fetch if not already loaded
+        const data = await fetchDiscoverData();
+        setDiscoverData(data);
+      }
     }
     load();
-  }, []);
+  }, [discoverData]);
 
   // -- SEARCH --
   useEffect(() => {
@@ -98,10 +101,21 @@ export default function Home() {
   const removeitem = (id: number) => removeFranchise(id);
 
   const handleShowDetails = async (id: number) => {
-    setIsModalOpen(true); setIsModalLoading(true);
+    setIsModalOpen(true);
+
+    // Check cache first
+    if (animeDetailsCache.has(id)) {
+      setSelectedAnime(animeDetailsCache.get(id));
+      setIsModalLoading(false);
+      return;
+    }
+
+    setIsModalLoading(true);
     try {
       const details = await fetchAnimeDetails(id);
       setSelectedAnime(details);
+      // Add to cache
+      setAnimeDetailsCache(prev => new Map(prev).set(id, details));
     } catch (e) { console.error(e); }
     finally { setIsModalLoading(false); }
   };

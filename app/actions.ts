@@ -208,7 +208,7 @@ const getSearchSuggestions = unstable_cache(
     const data = await fetchAPI(SUGGESTION_QUERY, { search }) as AniListResponse;
     return data.data.Page.media;
   },
-  ['search-suggestions'],
+  ['search-suggestions'], // Key will include the search parameter automatically
   { revalidate: 3600 } // Cache for 1 hour
 );
 

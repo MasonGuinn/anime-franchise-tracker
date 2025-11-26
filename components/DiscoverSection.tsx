@@ -31,8 +31,8 @@ export default function DiscoverSection({ title, icon: Icon, iconColor, data, on
                 ) : (
                     // Skeleton Loading State
                     [1, 2, 3, 4, 5, 6].map((i) => (
-                        <div key={i} className="min-w-[160px] w-[160px] space-y-2">
-                            <div className="aspect-[2/3] bg-zinc-800/50 rounded-xl animate-pulse" />
+                        <div key={i} className="min-w-40 w-40 space-y-2">
+                            <div className="aspect-2/3 bg-zinc-800/50 rounded-xl animate-pulse" />
                             <div className="h-4 w-3/4 bg-zinc-800/50 rounded animate-pulse" />
                             <div className="h-3 w-1/2 bg-zinc-800/30 rounded animate-pulse" />
                         </div>

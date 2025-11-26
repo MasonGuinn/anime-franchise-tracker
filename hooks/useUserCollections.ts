@@ -29,6 +29,7 @@ export function useUserCollections(user: User | null) {
     const [myList, setMyList] = useState<FranchiseItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [isLoadingFromSnapshot, setIsLoadingFromSnapshot] = useState(false);
 
     // Load from Firestore when user logs in
     useEffect(() => {
@@ -61,7 +62,11 @@ export function useUserCollections(user: User | null) {
                     const data = docSnap.data() as UserCollections;
                     const franchisesData = data.franchises || [];
                     console.log('Loaded franchises from Firestore:', franchisesData.length);
+                    setIsLoadingFromSnapshot(true);
                     setMyList(franchisesData);
+                    setIsLoading(false);
+                    // Reset flag after a brief delay to allow this render cycle to complete
+                    setTimeout(() => setIsLoadingFromSnapshot(false), 200);
                 } else {
                     console.log('No Firestore document found, checking localStorage for migration');
                     // First time user - migrate from localStorage if exists
@@ -70,25 +75,29 @@ export function useUserCollections(user: User | null) {
                         try {
                             const parsed = JSON.parse(localData);
                             console.log('Migrating from localStorage:', parsed.length, 'items');
+                            setIsLoadingFromSnapshot(true);
                             setMyList(parsed);
+                            setIsLoading(false);
                             // Save to Firestore
                             await setDoc(userDocRef, {
                                 franchises: parsed,
                                 lastUpdated: Date.now()
                             });
                             console.log('Migration complete');
+                            setTimeout(() => setIsLoadingFromSnapshot(false), 200);
                             // Clear localStorage after migration
                             localStorage.removeItem('myAnimeList_v16');
                         } catch (e) {
                             console.error('Migration failed:', e);
+                            setIsLoading(false);
                         }
                     } else {
                         // New user with no data
                         console.log('New user, no data');
                         setMyList([]);
+                        setIsLoading(false);
                     }
                 }
-                setIsLoading(false);
             },
             (error) => {
                 console.error('Firestore sync error:', error);
@@ -104,7 +113,7 @@ export function useUserCollections(user: User | null) {
 
     // Save to storage whenever list changes (but not when loading from Firestore)
     useEffect(() => {
-        if (isLoading) return;
+        if (isLoading || isLoadingFromSnapshot) return;
 
         const saveData = async () => {
             if (user) {
@@ -133,7 +142,7 @@ export function useUserCollections(user: User | null) {
         // Debounce saves to avoid too many writes
         const timeoutId = setTimeout(saveData, 500);
         return () => clearTimeout(timeoutId);
-    }, [myList, user, isLoading]);
+    }, [myList, user, isLoading, isLoadingFromSnapshot]);
 
     const addFranchise = (franchise: FranchiseItem) => {
         if (!myList.some(item => item.id === franchise.id)) {
