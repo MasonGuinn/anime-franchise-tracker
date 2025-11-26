@@ -16,13 +16,13 @@ declare global {
 const firebaseConfig = typeof window !== 'undefined' && window.__firebase_config
     ? JSON.parse(window.__firebase_config)
     : {
-        apiKey: "AIzaSyBXxbxy0S8DxPTVKC6NxqEVpYHrjNLTS0Y",
-        authDomain: "anime-franchise-list.firebaseapp.com",
-        projectId: "anime-franchise-list",
-        storageBucket: "anime-franchise-list.firebasestorage.app",
-        messagingSenderId: "824680210114",
-        appId: "1:824680210114:web:be63d697f5f0656a7ce55b",
-        measurementId: "G-L2JNH1L5P7"
+        apiKey: "",
+        authDomain: "",
+        projectId: "",
+        storageBucket: "",
+        messagingSenderId: "",
+        appId: "",
+        measurementId: ""
     };
 
 // 2. Initialize App (Singleton pattern)
