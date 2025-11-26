@@ -1,19 +1,10 @@
 'use client'
 import { useState, useEffect } from 'react';
-import { fetchFranchise } from './actions';
+import { fetchFranchise, searchSuggestions, fetchAnimeDetails, AnimeNode } from './actions';
+import { TimelineView, UITimelineNode } from '@/components/TimelineView';
+import AnimeDetailModal from '@/components/AnimeDetailModal';
 import Image from 'next/image';
-import { ChevronDown, ChevronRight, Folder, Plus, Trash2, CheckCircle2, Circle } from 'lucide-react';
-
-// -- TYPES --
-type AnimeNode = {
-  id: number;
-  format: string;
-  year: number;
-  cover: string;
-  edges: { id: number; relationType: string }[];
-  title: { english?: string; romaji?: string; };
-  childrenNodes?: AnimeNode[];
-};
+import { ChevronDown, ChevronRight, Folder, Plus, Trash2, Search, Loader2, Filter, ArrowDownUp, EyeOff } from 'lucide-react';
 
 type FranchiseItem = {
   id: number;
@@ -23,160 +14,63 @@ type FranchiseItem = {
   watchedIds: number[];
 };
 
-// -- RECURSIVE ITEM COMPONENT (Improved Button) --
-const RecursiveItem = ({ node, franchiseId, watchedIds, onToggleWatched, depth = 0 }: any) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const hasChildren = node.childrenNodes && node.childrenNodes.length > 0;
-  const isWatched = watchedIds.includes(node.id);
+type SortOption = 'year' | 'title';
 
-  return (
-    <div className="flex flex-col">
-      {/* The Item Row */}
-      <div
-        className={`flex items-center gap-3 p-2 rounded hover:bg-[#1f232e] transition group border border-transparent hover:border-zinc-800 ${depth > 0 ? 'ml-6 border-l-2 border-l-zinc-800 pl-3' : ''}`}
-        onClick={(e) => {
-          if (hasChildren) { e.stopPropagation(); setIsOpen(!isOpen); }
-        }}
-      >
-        <button onClick={(e) => { e.stopPropagation(); onToggleWatched(franchiseId, node.id); }} className="scale-90 hover:scale-110 transition shrink-0">
-          {isWatched
-            ? <CheckCircle2 className="text-indigo-500 fill-indigo-500/10" size={20} />
-            : <Circle className="text-zinc-700 group-hover:text-indigo-400" size={20} />}
-        </button>
-
-        <div className="flex-1 min-w-0 cursor-pointer">
-          <div className="text-sm text-zinc-300 group-hover:text-white transition-colors truncate">
-            {node.title?.english || node.title?.romaji}
-          </div>
-
-          <div className="flex items-center gap-2 mt-1.5">
-            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${node.format === 'MOVIE' ? 'border-emerald-900/50 text-emerald-500 bg-emerald-500/5' : 'border-zinc-700 text-zinc-500 bg-zinc-800'
-              }`}>
-              {node.format}
-            </span>
-
-            {/* === THE DROPDOWN BUTTON === */}
-            {hasChildren && (
-              <button
-                className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border transition-all duration-200 active:scale-95 ${isOpen
-                  ? 'bg-indigo-500 text-white border-indigo-400 shadow-[0_0_10px_-3px_rgba(99,102,241,0.5)]'
-                  : 'bg-zinc-800 border-zinc-600 text-zinc-300 hover:bg-zinc-700 hover:border-zinc-500'
-                  }`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsOpen(!isOpen);
-                }}
-              >
-                <span className={`transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>
-                  <ChevronRight size={10} strokeWidth={3} />
-                </span>
-                <span className="font-bold">{node.childrenNodes.length} Related</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Nested Children */}
-      {isOpen && hasChildren && (
-        <div className="animate-in slide-in-from-top-1 fade-in duration-200 mb-2 mt-1">
-          {node.childrenNodes.map((child: any) => (
-            <RecursiveItem
-              key={child.id}
-              node={child}
-              franchiseId={franchiseId}
-              watchedIds={watchedIds}
-              onToggleWatched={onToggleWatched}
-              depth={depth + 1}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// -- ERA COMPONENT --
-const EraGroup = ({ group, franchiseId, watchedIds, onToggleWatched }: any) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const isMainWatched = watchedIds.includes(group.main.id);
-  const hasExtras = group.extras.length > 0;
-
-  return (
-    <div className="relative pl-6 border-l-2 border-zinc-800">
-      <div className="absolute -left-[9px] top-6 w-4 h-4 rounded-full bg-indigo-600 border-4 border-[#09090b]"></div>
-
-      <div className={`mb-4 group ${hasExtras ? 'cursor-pointer' : ''}`} onClick={() => hasExtras && setIsOpen(!isOpen)}>
-        <div className={`flex items-start gap-4 p-4 rounded-xl border transition-all duration-200 ${isOpen ? 'bg-[#18181b] border-indigo-500/30 shadow-lg' : 'bg-[#18181b] border-zinc-800 hover:bg-[#202024] hover:border-zinc-700'}`}>
-          <button onClick={(e) => { e.stopPropagation(); onToggleWatched(franchiseId, group.main.id); }} className="mt-1 z-10 hover:scale-110 transition shrink-0">
-            {isMainWatched ? <CheckCircle2 className="text-indigo-500 fill-indigo-500/10" size={24} /> : <Circle className="text-zinc-600 hover:text-indigo-400" size={24} />}
-          </button>
-          {group.main.cover && <Image src={group.main.cover} alt="cover" width={60} height={85} className="w-14 h-20 object-cover rounded shadow-lg shrink-0" />}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-bold bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded uppercase tracking-wider">{group.main.year}</span>
-                <span className="text-xs text-zinc-500 uppercase">{group.main.format}</span>
-              </div>
-              {hasExtras && <div className={`text-zinc-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}><ChevronDown size={20} /></div>}
-            </div>
-            <h3 className="text-xl font-bold text-white group-hover:text-indigo-300 transition-colors truncate">{group.main.title?.english || group.main.title?.romaji}</h3>
-            {hasExtras ? (
-              <div className="text-sm text-zinc-400 mt-2 flex items-center gap-2">
-                <Folder size={14} className="text-zinc-500" />
-                <span>{group.extras.length} items in collection</span>
-              </div>
-            ) : <div className="text-sm text-zinc-600 mt-2 italic">No side stories</div>}
-          </div>
-        </div>
-      </div>
-
-      {isOpen && hasExtras && (
-        <div className="pl-4 mb-8 space-y-1">
-          {group.extras.map((extraNode: any) => (
-            <RecursiveItem
-              key={extraNode.id}
-              node={extraNode}
-              franchiseId={franchiseId}
-              watchedIds={watchedIds}
-              onToggleWatched={onToggleWatched}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// -- MAIN PAGE --
 export default function Home() {
   const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const [expandedFranchiseId, setExpandedFranchiseId] = useState<number | null>(null);
-  // Bump version to v9 to force clear any corrupted "Chihayafuru" data from local storage
+  const [isLoading, setIsLoading] = useState(false);
+
+  // -- STATE --
+  const [sortBy, setSortBy] = useState<SortOption>('year');
+  const [hideWatched, setHideWatched] = useState(false);
+  const [hideSpecials, setHideSpecials] = useState(false);
+
+  const [selectedAnime, setSelectedAnime] = useState<any>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalLoading, setIsModalLoading] = useState(false);
+
   const [myList, setMyList] = useState<FranchiseItem[]>(() => {
     if (typeof window === 'undefined') return [];
-    try {
-      const saved = localStorage.getItem('myAnimeList_v9');
-      return saved ? (JSON.parse(saved) as FranchiseItem[]) : [];
-    } catch { return []; }
+    try { return JSON.parse(localStorage.getItem('myAnimeList_v16') || '[]'); } catch { return []; }
   });
 
-  useEffect(() => { localStorage.setItem('myAnimeList_v9', JSON.stringify(myList)); }, [myList]);
+  useEffect(() => { localStorage.setItem('myAnimeList_v16', JSON.stringify(myList)); }, [myList]);
 
-  const handleAdd = async () => {
-    if (!query) return;
+  // -- SEARCH --
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (query.length > 2) {
+        setIsSearching(true);
+        const results = await searchSuggestions(query);
+        setSuggestions(results);
+        setIsSearching(false);
+      } else { setSuggestions([]); }
+    }, 300);
+    return () => clearTimeout(delayDebounceFn);
+  }, [query]);
+
+  // -- ACTIONS --
+  const handleAdd = async (id?: number) => {
+    const searchTerm = id || query;
+    if (!searchTerm) return;
+    setIsLoading(true); setQuery(''); setSuggestions([]);
+
     try {
-      const anime = await fetchFranchise(query);
+      const anime = await fetchFranchise(searchTerm as any);
       const newItem = { id: anime.id, title: anime.title.english || anime.title.romaji, cover: anime.coverImage.large || '', children: anime.children, watchedIds: [] };
       if (!myList.some(i => i.id === newItem.id as number)) {
-        setMyList([...myList, newItem as any]);
+        setMyList(prev => [...prev, newItem as any]);
         setExpandedFranchiseId(newItem.id as number);
       }
-      setQuery('');
     } catch { alert('Anime not found'); }
+    finally { setIsLoading(false); }
   };
 
   const removeitem = (id: number) => setMyList(myList.filter(item => item.id !== id));
+
   const toggleWatched = (franchiseId: number, animeId: number) => {
     setMyList(myList.map(item => {
       if (item.id !== franchiseId) return item;
@@ -185,78 +79,202 @@ export default function Home() {
     }));
   };
 
-  // --- HIERARCHY BUILDER ---
-  const buildHierarchy = (allNodes: AnimeNode[]) => {
-    const spine = allNodes.filter(n => n.format === 'TV').sort((a, b) => a.year - b.year);
-    const extrasPool = allNodes.filter(n => n.format !== 'TV');
+  const handleShowDetails = async (id: number) => {
+    setIsModalOpen(true);
+    setIsModalLoading(true);
+    try {
+      const details = await fetchAnimeDetails(id);
+      setSelectedAnime(details);
+    } catch (e) { console.error(e); }
+    finally { setIsModalLoading(false); }
+  };
 
-    const isChildOf = (child: AnimeNode, parent: AnimeNode) => {
-      return parent.edges.some(e => e.id === child.id && ['SIDE_STORY', 'ALTERNATIVE', 'SPIN_OFF', 'OVA', 'SUMMARY'].includes(e.relationType)) ||
-        child.edges.some(e => e.id === parent.id && ['PARENT', 'PREQUEL'].includes(e.relationType));
-    };
+  // -- HIERARCHY BUILDER --
+  const buildHierarchy = (franchise: FranchiseItem) => {
+    let allNodes = franchise.children;
 
-    return spine.map(tv => {
-      const eraExtras = extrasPool.filter(extra => {
-        const direct = isChildOf(extra, tv);
-        if (direct) return true;
-        const linkedToAnyTV = spine.some(s => isChildOf(extra, s));
-        if (!linkedToAnyTV) {
-          return extra.year >= tv.year && (!spine.find(s => s.year > tv.year && s.year <= extra.year));
-        }
-        return false;
+    if (hideSpecials) allNodes = allNodes.filter(n => ['TV', 'MOVIE'].includes(n.format));
+    if (hideWatched) allNodes = allNodes.filter(n => !franchise.watchedIds.includes(n.id));
+
+    const sortedNodes = [...allNodes].sort((a, b) => {
+      if (sortBy === 'title') {
+        const tA = a.title.english || a.title.romaji || '';
+        const tB = b.title.english || b.title.romaji || '';
+        return tA.localeCompare(tB);
+      }
+      return (a.year || 0) - (b.year || 0);
+    });
+
+    const root = sortedNodes.find(n => n.format === 'TV');
+    const realSpine: AnimeNode[] = [];
+    const spineIds = new Set<number>();
+
+    if (root) {
+      realSpine.push(root); spineIds.add(root.id);
+      let current = root;
+      while (true) {
+        const nextSeq = sortedNodes.find(n =>
+          !spineIds.has(n.id) && n.format === 'TV' && (
+            n.edges.some(e => e.id === current.id && e.relationType === 'PREQUEL') ||
+            current.edges.some(e => e.id === n.id && e.relationType === 'SEQUEL')
+          )
+        );
+        if (nextSeq) { realSpine.push(nextSeq); spineIds.add(nextSeq.id); current = nextSeq; } else { break; }
+      }
+    }
+
+    const leftoverTV = sortedNodes.filter(n => n.format === 'TV' && !spineIds.has(n.id));
+    leftoverTV.forEach(node => {
+      const relatedToSpine = realSpine.some(spineItem => node.edges.some(e => e.id === spineItem.id && e.relationType === 'PREQUEL'));
+      const isSpinOff = node.edges.some(e => ['SPIN_OFF', 'SIDE_STORY', 'ALTERNATIVE'].includes(e.relationType));
+      if (relatedToSpine && !isSpinOff) { realSpine.push(node); spineIds.add(node.id); }
+    });
+
+    realSpine.sort((a, b) => (a.year || 0) - (b.year || 0));
+
+    const extrasPool = sortedNodes.filter(n => !spineIds.has(n.id));
+    const assignments = new Map<number, AnimeNode[]>();
+    realSpine.forEach(tv => assignments.set(tv.id, []));
+
+    extrasPool.forEach(extra => {
+      const isRelated = (child: AnimeNode, parent: AnimeNode) =>
+        parent.edges.some(e => e.id === child.id) || child.edges.some(e => e.id === parent.id);
+
+      const parents = realSpine.filter(tv => isRelated(extra, tv));
+      let bestParent;
+      if (parents.length === 0) {
+        const recursiveParent = realSpine.find(tv => extrasPool.some(sibling => isRelated(sibling, tv) && isRelated(extra, sibling)));
+        bestParent = recursiveParent || realSpine[0];
+      } else {
+        const chronologicalParents = [...parents].sort((a, b) => (a.year || 0) - (b.year || 0));
+        bestParent = chronologicalParents.find(p => p.year <= extra.year) || chronologicalParents[chronologicalParents.length - 1];
+      }
+
+      if (bestParent) {
+        const edge = bestParent.edges.find(e => e.id === extra.id) || extra.edges.find(e => e.id === bestParent.id);
+        assignments.get(bestParent.id)?.push({ ...extra, relationToParent: edge?.relationType || undefined } as any);
+      }
+    });
+
+    return realSpine.map(tv => {
+      const rawExtras = assignments.get(tv.id) || [];
+      const rootExtras: UITimelineNode[] = [];
+      const nodeMap = new Map<number, UITimelineNode>();
+
+      rawExtras.sort((a, b) => {
+        if (sortBy === 'title') return (a.title.english || '').localeCompare(b.title.english || '');
+        return (a.year || 0) - (b.year || 0);
       });
 
-      const rootExtras: AnimeNode[] = [];
-      const nodeMap = new Map<number, AnimeNode>();
-      eraExtras.sort((a, b) => a.year - b.year);
-      eraExtras.forEach(e => { nodeMap.set(e.id, { ...e, childrenNodes: [] }); });
+      rawExtras.forEach(e => { nodeMap.set(e.id, { ...e, childrenNodes: [] }); });
 
       nodeMap.forEach(node => {
         let parentFound = false;
         for (const [potentialParentId, potentialParent] of nodeMap) {
           if (node.id === potentialParentId) continue;
-          if (isChildOf(node, potentialParent)) {
-            potentialParent.childrenNodes?.push(node);
+
+          const parentEdge = potentialParent.edges.find(e => e.id === node.id);
+          const childEdge = node.edges.find(e => e.id === potentialParentId);
+
+          const canNest = (parentEdge && ['SIDE_STORY', 'ALTERNATIVE', 'SPIN_OFF', 'SUMMARY', 'OTHER'].includes(parentEdge.relationType)) ||
+            (childEdge && ['SIDE_STORY', 'ALTERNATIVE', 'SPIN_OFF', 'SUMMARY'].includes(childEdge.relationType));
+
+          if (canNest) {
+            const relation = parentEdge ? parentEdge.relationType : 'SIDE_STORY';
+            potentialParent.childrenNodes?.push({ ...node, relationToParent: relation });
             parentFound = true;
             break;
           }
         }
         if (!parentFound) rootExtras.push(node);
       });
-
       return { main: tv, extras: rootExtras };
     });
   };
 
   return (
     <div className="min-h-screen bg-[#09090b] text-zinc-100 p-8 font-sans">
+
+      <AnimeDetailModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        anime={selectedAnime}
+        isLoading={isModalLoading}
+      />
+
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold mb-8 flex items-center gap-3 text-white"><Folder className="text-indigo-500 fill-indigo-500/20" /> Franchise Timeline</h1>
-        <div className="flex gap-3 mb-10">
-          <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} placeholder="Search franchise (e.g. Naruto)..." className="flex-1 p-4 rounded-xl bg-[#18181b] border border-zinc-800 focus:outline-none focus:border-indigo-500 text-white placeholder-zinc-500 transition-all" />
-          <button onClick={handleAdd} className="bg-indigo-600 px-8 py-3 rounded-xl hover:bg-indigo-500 font-bold flex items-center gap-2 text-white shadow-lg shadow-indigo-900/20"><Plus size={22} /> Add</button>
+
+        {/* SEARCH */}
+        <div className="relative mb-6 z-50">
+          <div className="flex gap-3">
+            <div className="relative flex-1">
+              <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} placeholder="Search franchise (e.g. One Piece)..." className="w-full p-4 pl-11 rounded-xl bg-[#18181b] border border-zinc-800 focus:outline-none focus:border-indigo-500 text-white placeholder-zinc-500 transition-all" />
+              <Search className="absolute left-4 top-4 text-zinc-500" size={20} />
+              {isSearching && <Loader2 className="absolute right-4 top-4 text-indigo-500 animate-spin" size={20} />}
+            </div>
+            <button onClick={() => handleAdd()} disabled={isLoading} className="bg-indigo-600 px-8 py-3 rounded-xl hover:bg-indigo-500 font-bold flex items-center gap-2 text-white shadow-lg shadow-indigo-900/20 disabled:opacity-50">{isLoading ? <Loader2 className="animate-spin" size={22} /> : <Plus size={22} />} Add</button>
+          </div>
+          {suggestions.length > 0 && (
+            <div className="absolute top-full left-0 w-[calc(100%-130px)] mt-2 bg-[#18181b] border border-zinc-800 rounded-xl shadow-2xl overflow-hidden animate-in slide-in-from-top-2 fade-in duration-200">
+              {suggestions.map((item) => (
+                <div key={item.id} onClick={() => handleAdd(item.id)} className="flex items-center gap-4 p-3 hover:bg-[#27272a] cursor-pointer border-b border-zinc-800/50 last:border-0">
+                  {item.coverImage?.medium && <Image src={item.coverImage.medium} alt="cover" width={40} height={56} className="w-10 h-14 object-cover rounded" />}
+                  <div><div className="font-bold text-zinc-200">{item.title.english || item.title.romaji}</div><div className="text-xs text-zinc-500 flex gap-2"><span>{item.startDate?.year}</span><span className="uppercase border border-zinc-700 px-1 rounded bg-zinc-800/50">{item.format}</span></div></div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+
+        {/* TOOLBAR */}
+        <div className="flex flex-wrap items-center gap-3 mb-8 p-4 bg-[#121214] border border-zinc-800/50 rounded-xl">
+          <div className="flex items-center gap-2 text-sm text-zinc-400 mr-2"><Filter size={16} /> Filters:</div>
+          <button onClick={() => setHideWatched(!hideWatched)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${hideWatched ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'}`}><EyeOff size={14} /> Hide Watched</button>
+          <button onClick={() => setHideSpecials(!hideSpecials)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${hideSpecials ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'}`}><Filter size={14} /> Main Series Only</button>
+          <div className="w-px h-6 bg-zinc-800 mx-2"></div>
+          <div className="flex items-center gap-2 text-sm text-zinc-400 mr-2"><ArrowDownUp size={16} /> Sort:</div>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortOption)} className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 cursor-pointer"><option value="year">Release Date</option><option value="title">Title (A-Z)</option></select>
+        </div>
+
+        {/* LIST */}
         <div className="space-y-6">
           {myList.map((franchise) => {
-            const groups = buildHierarchy(franchise.children);
+            const groups = buildHierarchy(franchise);
             const isExpanded = expandedFranchiseId === franchise.id;
             const progress = franchise.watchedIds.length;
             const total = franchise.children.length;
+
             return (
               <div key={franchise.id} className="bg-[#18181b] rounded-2xl overflow-hidden border border-zinc-800/60 shadow-xl">
                 <div onClick={() => setExpandedFranchiseId(isExpanded ? null : franchise.id)} className="p-5 flex items-center gap-5 cursor-pointer hover:bg-[#27272a] transition-colors group relative overflow-hidden">
                   <div className="absolute bottom-0 left-0 h-1 bg-indigo-500/20 w-full"><div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${(progress / total) * 100}%` }} /></div>
                   <Image src={franchise.cover} alt="cover" width={50} height={70} className="w-12 h-16 object-cover rounded shadow-md z-10" />
-                  <div className="flex-1 z-10"><h2 className="text-2xl font-bold text-white group-hover:text-indigo-400 transition-colors">{franchise.title}</h2><div className="text-sm text-zinc-500 mt-1">{progress} / {total} Watched</div></div>
+                  <div className="flex-1 z-10">
+                    {/* --- ADDED "FRANCHISE" HERE --- */}
+                    <h2 className="text-2xl font-bold text-white group-hover:text-indigo-400 transition-colors">
+                      {franchise.title} <span className="opacity-50 text-lg font-normal">Franchise</span>
+                    </h2>
+                    <div className="text-sm text-zinc-500 mt-1">{progress} / {total} Watched</div>
+                  </div>
                   <button onClick={(e) => { e.stopPropagation(); removeitem(franchise.id); }} className="text-zinc-600 hover:text-red-400 p-3 z-10"><Trash2 size={20} /></button>
                   {isExpanded ? <ChevronDown className="text-zinc-500 z-10" /> : <ChevronRight className="text-zinc-500 z-10" />}
                 </div>
-                {isExpanded && <div className="bg-[#09090b] border-t border-zinc-800 p-6 pt-10">{groups.map((group) => <EraGroup key={group.main.id} group={group} franchiseId={franchise.id} watchedIds={franchise.watchedIds} onToggleWatched={toggleWatched} />)}</div>}
+
+                {isExpanded && (
+                  <TimelineView
+                    franchiseId={franchise.id}
+                    groups={groups as any}
+                    watchedIds={franchise.watchedIds}
+                    onToggleWatched={toggleWatched}
+                    onTitleClick={handleShowDetails}
+                  />
+                )}
               </div>
             );
           })}
         </div>
       </div>
-    </div >
+    </div>
   );
 }
