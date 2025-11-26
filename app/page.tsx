@@ -4,21 +4,32 @@ import { fetchFranchise, searchSuggestions, fetchAnimeDetails, fetchDiscoverData
 import { TimelineView, UITimelineNode } from '@/components/TimelineView';
 import AnimeDetailModal from '@/components/AnimeDetailModal';
 import DiscoverSection from '@/components/DiscoverSection'; // New Import
+import LoginButton from '@/components/LoginButton';
+import { useUserCollections, type FranchiseItem } from '@/hooks/useUserCollections';
+import { auth } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import Image from 'next/image';
 import { ChevronDown, ChevronRight, Folder, Plus, Trash2, Search, Loader2, Filter, ArrowDownUp, EyeOff, Flame, Calendar, Trophy, Library, LayoutGrid } from 'lucide-react';
-
-type FranchiseItem = {
-  id: number;
-  title: string;
-  cover: string;
-  children: AnimeNode[];
-  watchedIds: number[];
-};
 
 type SortOption = 'year' | 'title';
 type TabOption = 'discover' | 'library';
 
 export default function Home() {
+  // -- AUTH STATE --
+  const [user, setUser] = useState<any | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // -- USER COLLECTIONS --
+  const { myList, isLoading: isCollectionsLoading, isSyncing, addFranchise, removeFranchise, toggleWatched } = useUserCollections(user);
+
   // -- STATE --
   const [activeTab, setActiveTab] = useState<TabOption>('discover');
   const [discoverData, setDiscoverData] = useState<{ trending: any[], popular: any[], upcoming: any[] } | null>(null);
@@ -36,13 +47,6 @@ export default function Home() {
   const [selectedAnime, setSelectedAnime] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isModalLoading, setIsModalLoading] = useState(false);
-
-  const [myList, setMyList] = useState<FranchiseItem[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try { return JSON.parse(localStorage.getItem('myAnimeList_v16') || '[]'); } catch { return []; }
-  });
-
-  useEffect(() => { localStorage.setItem('myAnimeList_v16', JSON.stringify(myList)); }, [myList]);
 
   // -- FETCH DATA --
   useEffect(() => {
@@ -74,11 +78,15 @@ export default function Home() {
 
     try {
       const anime = await fetchFranchise(searchTerm as any);
-      const newItem = { id: anime.id, title: anime.title.english || anime.title.romaji, cover: anime.coverImage.large || '', children: anime.children, watchedIds: [] };
-
-      if (!myList.some(i => i.id === newItem.id as number)) {
-        setMyList(prev => [...prev, newItem as any]);
-        setExpandedFranchiseId(newItem.id as number);
+      const newItem: FranchiseItem = {
+        id: anime.id,
+        title: anime.title.english || anime.title.romaji || 'Unknown',
+        cover: anime.coverImage.large || '',
+        children: anime.children,
+        watchedIds: []
+      }; const added = addFranchise(newItem);
+      if (added) {
+        setExpandedFranchiseId(newItem.id);
         setActiveTab('library');
       } else {
         alert('Already in your library!');
@@ -87,14 +95,7 @@ export default function Home() {
     finally { setIsLoading(false); }
   };
 
-  const removeitem = (id: number) => setMyList(myList.filter(item => item.id !== id));
-  const toggleWatched = (franchiseId: number, animeId: number) => {
-    setMyList(myList.map(item => {
-      if (item.id !== franchiseId) return item;
-      const isWatched = item.watchedIds.includes(animeId);
-      return { ...item, watchedIds: isWatched ? item.watchedIds.filter(id => id !== animeId) : [...item.watchedIds, animeId] };
-    }));
-  };
+  const removeitem = (id: number) => removeFranchise(id);
 
   const handleShowDetails = async (id: number) => {
     setIsModalOpen(true); setIsModalLoading(true);
@@ -197,19 +198,23 @@ export default function Home() {
             <Folder className="text-indigo-500 fill-indigo-500/20" /> Franchise Timeline
           </h1>
 
-          <div className="flex bg-[#18181b] p-1 rounded-xl border border-zinc-800">
-            <button
-              onClick={() => setActiveTab('discover')}
-              className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'discover' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'}`}
-            >
-              <LayoutGrid size={16} /> Discover
-            </button>
-            <button
-              onClick={() => setActiveTab('library')}
-              className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'library' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'}`}
-            >
-              <Library size={16} /> My Collection <span className="bg-indigo-600 text-[10px] px-1.5 rounded-full ml-1">{myList.length}</span>
-            </button>
+          <div className="flex items-center gap-4">
+            <div className="flex bg-[#18181b] p-1 rounded-xl border border-zinc-800">
+              <button
+                onClick={() => setActiveTab('discover')}
+                className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'discover' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                <LayoutGrid size={16} /> Discover
+              </button>
+              <button
+                onClick={() => setActiveTab('library')}
+                className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'library' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                <Library size={16} /> My Collection {isMounted && <span className="bg-indigo-600 text-[10px] px-1.5 rounded-full ml-1">{myList.length}</span>}
+              </button>
+            </div>
+
+            <LoginButton />
           </div>
         </div>
 
